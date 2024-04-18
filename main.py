@@ -1,6 +1,7 @@
 import os
 import librosa
 import numpy as np
+import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from scipy.signal import medfilt
@@ -9,12 +10,16 @@ from sklearn.metrics import accuracy_score, f1_score
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.tree import DecisionTreeClassifier, ExtraTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier, AdaBoostClassifier, HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_validate
+from tqdm import tqdm
+import warnings
+from IPython.display import Image, Audio, display
+from ipywidgets import widgets
 
-# Função para aplicar filtro de mediana para remover ruído em um arquivo de áudio
-def denoise_audio(audio_data, sample_rate):
-    # Aplicar filtro de mediana para remover ruído
-    denoised_audio = medfilt(audio_data, kernel_size=3)  
-    return denoised_audio
+warnings.filterwarnings('ignore')
 
 # Função para extrair características de áudio
 def extract_features(audio_data, sample_rate, mfcc=True, chroma=True, mel=True, spectral_centroid=True, zero_crossing_rate=True):
@@ -42,41 +47,6 @@ def extract_features(audio_data, sample_rate, mfcc=True, chroma=True, mel=True, 
             
         return features
 
-# Função para detectar períodos de deglutição em arquivos de áudio
-def detect_swallow_periods(audio_files, interval_duration=0.1, threshold=0.5, min_duration=0.5, max_duration=2.0):
-    all_swallow_periods = []
-    
-    for audio_file in audio_files:
-        swallow_periods = []
-        # Carregar o arquivo de áudio
-        y, sr = librosa.load(audio_file)
-        
-        # Calcular a média da amplitude do sinal de áudio
-        amplitude_mean = np.mean(np.abs(y))
-        
-        # Definir o limite para detecção de deglutições
-        threshold = amplitude_mean * threshold
-        interval_samples = int(interval_duration * sr)
-        
-        # Encontrar períodos de deglutição
-        swallow_indices = np.where(np.abs(y) > threshold)[0]
-        
-        # Agrupar períodos de deglutição em intervalos maiores
-        for i in range(0, len(swallow_indices), interval_samples):
-            start = swallow_indices[i] / sr
-            end = swallow_indices[min(i + interval_samples, len(swallow_indices) - 1)] / sr
-            duration = end - start
-            
-            # Verificar se a duração do intervalo é maior que o mínimo
-            if duration >= min_duration and duration <= max_duration:
-                # Verificar se o início do intervalo atual é posterior ao final do intervalo anterior
-                if start > swallow_periods[-1][1] if swallow_periods else True:
-                    swallow_periods.append((start, end))
-
-        all_swallow_periods.append(swallow_periods)
-
-    return all_swallow_periods
-
 # Diretório onde os arquivos de áudio estão localizados
 audio_dir = "MP3"
 
@@ -91,17 +61,15 @@ for file_name in os.listdir(audio_dir):
     if file_name.endswith(".mp3"):
         # Carregar o áudio usando librosa
         audio_data, sample_rate = librosa.load(os.path.join(audio_dir, file_name))
-        # denoised_audio = denoise_audio(audio_data, sample_rate)
 
         # Extrair características do áudio
         features.append(extract_features(audio_data, sample_rate))
 
-        if(file_name == 'a00200.mp3'):
-            break
 
 # Convertendo a lista de características para uma matriz numpy
 features = np.array(features)
 
+# MÉTODO NÃO SUPERVISIONADO (K-MEANS)
 # Aplicar K-Means para agrupar os dados
 kmeans = KMeans(n_clusters=2)  # número de clusters pode ser ajustado
 kmeans.fit(features)
@@ -109,19 +77,14 @@ kmeans.fit(features)
 # Rotular os clusters
 labels = kmeans.labels_
 
-# Identificar outliers como pontos que estão longe do centro do cluster
-# distances = kmeans.transform(features)
-# threshold = np.percentile(distances, 95)  # Ajuste o limite conforme necessário
-# outliers = np.where(distances > threshold)[0]
-
 # Identificar os arquivos de áudio que são identificados como áudios válidos
 audio_files_indices = np.where(labels == 1)[0]
 
 # Exibir os arquivos de áudio que são identificados como outliers
-print("Deglutições detectadas nos seguintes arquivos:")
-for idx in audio_files_indices:
-    audio_files.append(os.path.join(audio_dir, os.listdir(audio_dir)[idx]))
-    print(os.listdir(audio_dir)[idx])
+# print("Deglutições detectadas nos seguintes arquivos (K-Means):")
+# for idx in audio_files_indices:
+#     audio_files.append(os.path.join(audio_dir, os.listdir(audio_dir)[idx]))
+#     print(os.listdir(audio_dir)[idx])
 
 # Aplicar PCA para reduzir a dimensionalidade dos dados para visualização
 pca = PCA(n_components=2)
@@ -140,66 +103,75 @@ plt.ylabel('Componente Principal 2')
 plt.title('Clusters K-Means')
 plt.show()
 
-true_labels = [1, 1, 1, 1, 0, 1, 1, 1, 1, 0,    # 1 - 10
-               1, 1, 0, 1, 1, 0, 0,             # 11 - 20
-               0, 0, 0, 0, 0, 1, 1, 1, 1,       # 21 - 30
-               1, 1, 1, 1, 1, 1, 1, 1, 1, 1,    # 31 - 40
-               0, 1, 1, 1, 0, 0, 0, 0, 1, 0,    # 41 - 50
-               1, 1, 1, 0, 1, 1, 1, 1, 0,       # 51 - 60
-               1, 1, 1, 0, 1, 0, 1, 0, 1, 0,    # 61 - 70
-               0, 0, 1, 1, 1, 1, 0, 0, 0, 1,    # 71 - 80
-               0, 0, 1, 0, 0, 0, 0, 1, 1, 1,    # 81 - 90
-               1, 1, 1, 1, 1, 1, 1, 1, 1, 1,    # 91 - 100
-               1, 1, 0, 1, 1, 1, 1, 0, 1,       # 101 - 110
-               1, 1, 1, 1, 0, 1, 1, 1, 1,       # 111 - 120
-               1, 1, 1, 1, 1, 0, 1, 1, 0, 1,    # 121 - 130
-               1, 1, 1, 1, 1, 1, 1, 1, 1, 1,    # 131 - 140
-               1, 1, 1, 1, 1, 1, 1, 0, 1, 1,    # 141 - 150
-               1, 0, 1, 1, 1, 1, 1, 1, 1,       # 151 - 160
-               1, 1, 1, 1, 1, 1, 1, 1, 1, 1,    # 161 - 170
-               1, 0, 1, 1, 1, 0, 0, 0, 1, 0,    # 171 - 180
-               1, 1, 1, 1, 1, 1, 0, 0, 1,       # 181 - 190
-               1, 1, 1, 1, 1, 1, 1, 1, 1, 1,    # 191 - 200
-               ]    
+# Identificando true labels
+tutor = pd.read_csv('classificacao_anomalias.csv')
+tutor = tutor[['File Name','Label']]
+tutor['Label'] = tutor['Label'].apply(lambda x: 1 if x == 0 else 0)
+true_labels = tutor['Label'].values
 
 # Calcular a acurácia
-accuracy_1 = accuracy_score(true_labels, labels)
+accuracy = accuracy_score(true_labels, labels)
 
 # Calcular a pontuação F1
-f1 = f1_score(true_labels, labels, average='weighted')  # ou 'macro', 'micro', dependendo do seu caso
+f1 = f1_score(true_labels, labels, average='weighted')
 
-print("Modelo não supervisionado:")
-print("Acurácia :", accuracy_1)
-print("Pontuação F1:", f1)
+# Printando Acurácia e F1 Score
+print("Método não supervisionado:")
+print("Acurácia :", accuracy)
+print("F1 Score:", f1)
 
+# Comparando classificadores de aprendizado supervisionado com validação cruzada
+classificadores = [
+    DecisionTreeClassifier(random_state=42,max_depth=5),
+    ExtraTreeClassifier(random_state=42,max_depth=5),
+    RandomForestClassifier(random_state=42,max_depth=5),
+    ExtraTreesClassifier(random_state=42,max_depth=5),
+    GradientBoostingClassifier(random_state=42,max_depth=5),
+    AdaBoostClassifier(random_state=42),
+    HistGradientBoostingClassifier(random_state=42,max_depth=5),
+    LogisticRegression(random_state=42),
+]
 
-# Detectar períodos de deglutição em arquivos de áudio
-# swallow_periods = detect_swallow_periods(audio_files)
+resultados = []
+for cls in tqdm(classificadores):
+    res = cross_validate(cls, features, true_labels, cv=5, scoring='f1')
+    resultados.append(
+        {'metodo': cls.__class__.__name__, 
+         'f1': res['test_score'].mean(), 
+         'tempo': res['fit_time'].mean(),
+         }
+    )
 
-# print("Períodos de deglutição identificados:")
-# for idx, swallow_periods in enumerate(swallow_periods):
-#     print(f"Arquivo {audio_files[idx]}:")
-#     for start, end in swallow_periods:
-#         print(f"De {start:.2f} segundos até {end:.2f} segundos.")
+warnings.filterwarnings('default')
+df_res = pd.DataFrame(resultados)
+df_res.sort_values('f1', ascending=False)
+print(df_res)
 
-# Separar os dados em conjunto de treinamento e teste
-X_train, X_test, y_train, y_test = train_test_split(features, true_labels, test_size=0.2, random_state=42)
-
+# MÉTODO SUPERVISIONADO (Random Forest Classifier)
 # Instanciar um objeto RandomForestClassifier
-random_forest = RandomForestClassifier(n_estimators=100, random_state=42)
+random_forest = RandomForestClassifier(random_state=42, max_depth=5)
 
 # Ajustar o modelo aos dados de treinamento
-random_forest.fit(X_train, y_train)
+random_forest.fit(features, true_labels)
 
-# Fazer previsões nos dados de teste
-predictions = random_forest.predict(X_test)
+# F1 Score do modelo
+f1_rfc = random_forest.score(features, true_labels)
 
-# Avaliar o desempenho do modelo
-accuracy_2 = accuracy_score(y_test, predictions)
-report = classification_report(y_test, predictions)
+print("\nMétodo supervisionado:")
+print("F1 Score:", f1_rfc)
 
+# Juntar o dataframe tutor e o array features em um único dataframe
+df = pd.DataFrame(features, columns=["Feature_" + str(i) for i in range(features.shape[1])])
+df = pd.concat([tutor, df], axis=1)
+df.reset_index(inplace=True)
 
-print("\nModelo supervisionado:")
-print("Acurácia:", accuracy_2)
-print("Relatório de Classificação:")
-print(report)
+blocos = []
+for i, row in df.head(50).iterrows():
+    nome = row['File Name'].split('.')[0]
+    out = widgets.Output()
+    with out:
+        display(Image(f'Charts/{nome}.png'))
+        display('Inválido' if row['Label'] == 0 else 'Válido')
+        display(Audio(f'MP3/{nome}.mp3'))
+    blocos.append(out)
+widgets.HBox(blocos)
