@@ -18,6 +18,7 @@ from tqdm import tqdm
 import warnings
 from IPython.display import Image, Audio, display
 from ipywidgets import widgets
+import joblib
 
 warnings.filterwarnings('ignore')
 
@@ -157,6 +158,9 @@ random_forest.fit(features, true_labels)
 # F1 Score do modelo
 f1_rfc = random_forest.score(features, true_labels)
 
+# Salvar o modelo
+joblib.dump(random_forest, 'RandomForestClassifier.joblib')
+
 print("\nMétodo supervisionado:")
 print("F1 Score:", f1_rfc)
 
@@ -165,13 +169,133 @@ df = pd.DataFrame(features, columns=["Feature_" + str(i) for i in range(features
 df = pd.concat([tutor, df], axis=1)
 df.reset_index(inplace=True)
 
-blocos = []
-for i, row in df.head(50).iterrows():
-    nome = row['File Name'].split('.')[0]
-    out = widgets.Output()
-    with out:
-        display(Image(f'Charts/{nome}.png'))
-        display('Inválido' if row['Label'] == 0 else 'Válido')
-        display(Audio(f'MP3/{nome}.mp3'))
-    blocos.append(out)
-widgets.HBox(blocos)
+# blocos = []
+# for i, row in df.head(50).iterrows():
+#     nome = row['File Name'].split('.')[0]
+#     out = widgets.Output()
+#     with out:
+#         display(Image(f'Charts/{nome}.png'))
+#         display('Inválido' if row['Label'] == 0 else 'Válido')
+#         display(Audio(f'MP3/{nome}.mp3'))
+#     blocos.append(out)
+# widgets.HBox(blocos)
+
+# Diretório onde os testes de áudio estão localizados
+audio_dir = "test"
+
+# Lista para armazenar as características extraídas
+features_test = []
+
+# Extrair características de cada arquivo de áudio na pasta
+for file_name in os.listdir(audio_dir):
+    if file_name.endswith(".mp3"):
+        # Carregar o áudio usando librosa
+        audio_data, sample_rate = librosa.load(os.path.join(audio_dir, file_name))
+
+        # Extrair características do áudio
+        features_test.append(extract_features(audio_data, sample_rate))
+print(features_test)
+
+# Identificando true labels dos testes
+tutor = pd.read_csv('classificacao_testes.csv')
+tutor = tutor[['File Name','Label']]
+true_labels_test = tutor['Label'].values
+
+# Carregar o modelo treinado
+classificador = joblib.load('RandomForestClassifier.joblib')
+
+# Prever os rótulos dos testes
+y_pred = classificador.predict(features_test)
+
+# Calcular a acurácia
+print(classification_report(true_labels_test, y_pred))
+
+# Lista de boas deglutições
+audios_list = ['a00028.mp3','a00073.mp3','a00083.mp3','a00111.mp3','a00112.mp3','a00115.mp3','a00133.mp3','a00180.mp3','a00183.mp3','a00376.mp3','a00393.mp3','a00397.mp3','a00443.mp3']
+
+audio_dir = 'MP3'
+
+# Seprando em janelas de 0.5s com passo de 0.25s para analisar os áudios
+dados = []
+for file_name in os.listdir(audio_dir):
+    if file_name in audios_list:
+        audio_data, sample_rate = librosa.load(os.path.join(audio_dir, file_name))
+        x = np.arange(len(audio_data))/sample_rate
+
+        janela = int(0.5 * sample_rate)
+        passo = int(0.25 * sample_rate)
+
+        linha = []
+        for i in range(0, len(audio_data), int(passo)):
+            max = i + janela
+            if max > len(audio_data):
+                break
+            linha.append((x[i:max], audio_data[i:max]))    
+        dados.append(linha)
+
+fig, ax = plt.subplots(len(dados), 1, figsize=(15, 3*len(dados)))
+for i, linha in enumerate(dados):
+    ax[i].set_title(audios_list[i])
+    for x, y in linha:
+        ax[i].plot(x, y)
+plt.show()
+
+# Agrupamento de dados
+X = []
+for i, linha in enumerate(dados):
+    for _, y in linha:
+        X.append(y)
+
+clf = KMeans(n_clusters=2, random_state=42)
+clf.fit(X)
+grupo = clf.predict(X)
+
+fig, ax = plt.subplots(len(dados), 1, figsize=(15, 3*len(dados)))
+n=-1
+cores = ['b','g','r','c','m','y','k']
+for i, linha in enumerate(dados):
+    ax[i].set_title(audios_list[i])
+    for x, y in linha:
+        n+=1
+        ax[i].plot(x, y, color=cores[grupo[n]])
+
+plt.show()
+
+# Metódo Supervisionado (Random Forest Classifier)
+X = []
+for i, linha in enumerate(dados):
+    for _, y in linha:
+        X.append(y)
+
+clf = RandomForestClassifier(random_state=42, max_depth=5)
+clf.fit(X)
+ano = clf.predict(X)
+ano = (ano == -1)
+
+fig, ax = plt.subplots(len(dados), 1, figsize=(15, 3*len(dados)))
+n=-1
+for i, linha in enumerate(dados):
+    ax[i].set_title(audios_list[i])
+    for x, y in linha:
+        n+=1
+        ax[i].plot(x, y, color='red' if ano[n] else 'blue')
+plt.show()
+
+# Metódo Supervisionado (Random Forest Classifier)
+X = []
+for i, linha in enumerate(dados):
+    for _, y in linha:
+        X.append(y)
+
+clf = joblib.load('RandomForestClassifier.joblib')
+ano = clf.predict(X)
+ano = (ano == -1)
+
+fig, ax = plt.subplots(len(dados), 1, figsize=(15, 3*len(dados)))
+n=-1
+for i, linha in enumerate(dados):
+    ax[i].set_title(audios_list[i])
+    for x, y in linha:
+        n+=1
+        ax[i].plot(x, y, color='red' if ano[n] else 'blue')
+plt.show()
